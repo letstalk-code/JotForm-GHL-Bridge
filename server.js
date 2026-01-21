@@ -9,16 +9,63 @@ const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
+const BRIDGE_URL = "https://jotform-ghl-bridge.onrender.com/webhook/jotform";
+const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
+
 /**
- * BRIDGE: JotForm to GHL (Subaccount 2)
- * Translates JotForm internal codes into "Pretty" fields for GHL.
+ * FEATURE: /resync
+ * Visit this in your browser to automatically connect all new JotForms!
+ */
+app.get('/resync', async (req, res) => {
+    try {
+        console.log('🔄 Manual Sync Triggered: Checking for un-bridged forms...');
+        const formsResponse = await axios.get('https://api.jotform.com/user/forms', {
+            headers: { 'APIKEY': JOTFORM_API_KEY }
+        });
+
+        const forms = formsResponse.data.content;
+        let addedCount = 0;
+        let alreadyBridged = 0;
+
+        for (const form of forms) {
+            const webhooksResponse = await axios.get(`https://api.jotform.com/form/${form.id}/webhooks`, {
+                headers: { 'APIKEY': JOTFORM_API_KEY }
+            });
+
+            const webhooks = Object.values(webhooksResponse.data.content || {});
+            if (webhooks.includes(BRIDGE_URL)) {
+                alreadyBridged++;
+                continue;
+            }
+
+            // Not bridged? Add it!
+            await axios.post(`https://api.jotform.com/form/${form.id}/webhooks`, `webhookURL=${encodeURIComponent(BRIDGE_URL)}`, {
+                headers: { 'APIKEY': JOTFORM_API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+            addedCount++;
+        }
+
+        res.send(`<h1>✨ JotForm Bridge Sync Complete</h1>
+                  <p>Check your terminal logs for details.</p>
+                  <ul>
+                    <li><b>Newly Bridged:</b> ${addedCount} forms</li>
+                    <li><b>Already Connected:</b> ${alreadyBridged} forms</li>
+                  </ul>
+                  <p>You can now close this tab. All contracts are live!</p>`);
+    } catch (error) {
+        res.status(500).send(`<h1>❌ Sync Failed</h1><p>${error.message}</p>`);
+    }
+});
+
+/**
+ * BRIDGE: JotForm to GHL
  */
 app.post('/webhook/jotform', async (req, res) => {
     try {
         const data = req.body;
         console.log('📬 [JotForm Bridge] Received signature for:', data.formTitle || data.formID);
 
-        // Map JotForm structure to the "Pretty" names you set up in GHL
         const prettyData = {
             form_id: data.formID || "",
             form_title: data.formTitle || "",
@@ -35,10 +82,8 @@ app.post('/webhook/jotform', async (req, res) => {
             reception_location: data.q89_weddingReception || ""
         };
 
-        // Forward to the GHL Webhook you created
-        await axios.post(process.env.GHL_ROUTER_URL, prettyData);
-
-        console.log('✅ Successfully forwarded to GHL Subaccount 2');
+        await axios.post(GHL_ROUTER_URL, prettyData);
+        console.log('✅ Success: Sent to GHL.');
         res.status(200).send({ status: "success" });
     } catch (error) {
         console.error('❌ Bridge Error:', error.message);
@@ -47,5 +92,5 @@ app.post('/webhook/jotform', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 JotForm Bridge is running on port ${PORT}`);
+    console.log(`🚀 JotForm Bridge Live on port ${PORT}`);
 });
