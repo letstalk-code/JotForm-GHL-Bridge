@@ -57,6 +57,7 @@ function extractMasterData(raw) {
         grooms_first_name: g_first,
         grooms_last_name: g_last,
         event_date: weddingDate,
+        wedding_date: weddingDate,
         venue_location: getVal('weddingCeremony') || getVal('venue') || "",
         reception_location: getVal('weddingReception') || getVal('reception') || ""
     };
