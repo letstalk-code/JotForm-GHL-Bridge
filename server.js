@@ -14,7 +14,7 @@ const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
 const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
 
 /**
- * MASTER EXTRACTOR V5 - "The S-Fixer"
+ * MASTER EXTRACTOR V6 - "The Standardizer"
  */
 function extractMasterData(incoming) {
     let data = incoming || {};
@@ -24,16 +24,12 @@ function extractMasterData(incoming) {
 
     const getVal = (search, sub) => {
         const keys = Object.keys(data);
-        // Search for keys that contains the string (e.g. 'bride')
         const foundKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()));
         if (!foundKey) return "";
 
         if (sub) {
-            // Check bracket notation: q15_bride[first]
             const bracketKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()) && k.toLowerCase().includes(`[${sub.toLowerCase()}]`));
             if (bracketKey) return data[bracketKey];
-
-            // Check object notation
             if (typeof data[foundKey] === 'object' && data[foundKey] !== null) {
                 return data[foundKey][sub] || "";
             }
@@ -55,7 +51,13 @@ function extractMasterData(incoming) {
         form_title: data.formTitle || data.form_title || "Wedding Contract",
         email: getVal('email') || "",
         phone: getVal('phone') || "",
-        // We send BOTH plural and singular so GHL never misses
+        // --- STANDARD KEYS (GHL Prefers these for the top boxes) ---
+        first_name: b_first,
+        last_name: b_last,
+        firstName: b_first,
+        lastName: b_last,
+        name: `${b_first} ${b_last}`.trim(),
+        // --- BRIDE/GROOM CUSTOM KEYS ---
         bride_first_name: b_first,
         brides_first_name: b_first,
         bride_last_name: b_last,
@@ -79,9 +81,9 @@ app.post('/webhook/jotform', upload.any(), async (req, res) => {
 
         if (GHL_ROUTER_URL && cleaned.email) {
             await axios.post(GHL_ROUTER_URL, cleaned);
-            console.log('✅ FORWARDED TO GHL');
+            console.log('✅ FORWARDED');
         }
     } catch (e) { console.error('❌ ERROR:', e.message); }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Bridge V5 Live`); });
+app.listen(PORT, () => { console.log(`🚀 Bridge V6 Live`); });
