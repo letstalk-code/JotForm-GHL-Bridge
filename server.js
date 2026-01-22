@@ -14,26 +14,41 @@ const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
 const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
 
 /**
- * SMART EXTRACTOR V3
- * Handles both "bracket" keys q15[first] and "object" keys { q15: { first: "" } }
+ * MASTER EXTRACTOR V4
+ * This version specifically handles JotForm's 'rawRequest' field.
  */
-function extractMasterData(raw) {
-    const getVal = (search, sub) => {
-        // 1. Look for bracket notation: q15_bridesName[first]
-        const bracketKey = Object.keys(raw).find(k =>
-            k.toLowerCase().includes(search.toLowerCase()) && k.toLowerCase().includes(`[${sub.toLowerCase()}]`)
-        );
-        if (bracketKey) return raw[bracketKey];
+function extractMasterData(incoming) {
+    let data = incoming || {};
 
-        // 2. Look for object notation: q15_bridesName: { first: "..." }
-        const objectKey = Object.keys(raw).find(k => k.toLowerCase().includes(search.toLowerCase()));
-        if (objectKey && typeof raw[objectKey] === 'object' && raw[objectKey] !== null) {
-            return raw[objectKey][sub] || "";
+    // 1. CRITICAL: Unpack JotForm's nested rawRequest if it exists
+    if (data.rawRequest) {
+        try {
+            data = JSON.parse(data.rawRequest);
+            console.log('📦 Unpacked real JotForm data.');
+        } catch (e) {
+            console.log('⚠️ Could not parse rawRequest, using body as-is.');
         }
+    }
 
-        // 3. String Fallback (for single fields like email/phone)
-        if (!sub && objectKey) return raw[objectKey];
-        return "";
+    const getVal = (search, sub) => {
+        // Search inside the unpacked data
+        const keys = Object.keys(data);
+
+        // Match bracket notation or nested object
+        const foundKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()));
+        if (!foundKey) return "";
+
+        if (sub) {
+            // Check for [first] in the key name
+            const bracketKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()) && k.toLowerCase().includes(`[${sub.toLowerCase()}]`));
+            if (bracketKey) return data[bracketKey];
+
+            // Check for nested object { name: { first: "" } }
+            if (typeof data[foundKey] === 'object' && data[foundKey] !== null) {
+                return data[foundKey][sub] || "";
+            }
+        }
+        return data[foundKey];
     };
 
     const b_first = getVal('bridesName', 'first') || getVal('name', 'first') || "";
@@ -47,7 +62,7 @@ function extractMasterData(raw) {
     const weddingDate = (m && d && y) ? `${m}/${d}/${y}` : "";
 
     return {
-        form_title: raw.formTitle || "Signed Contract",
+        form_title: data.formTitle || data.form_title || "Wedding Contract",
         first_name: b_first || "New",
         last_name: b_last || "Bride",
         email: getVal('email') || "",
@@ -56,8 +71,8 @@ function extractMasterData(raw) {
         brides_last_name: b_last,
         grooms_first_name: g_first,
         grooms_last_name: g_last,
-        event_date: weddingDate,
         wedding_date: weddingDate,
+        event_date: weddingDate,
         venue_location: getVal('weddingCeremony') || getVal('venue') || "",
         reception_location: getVal('weddingReception') || getVal('reception') || ""
     };
@@ -66,15 +81,16 @@ function extractMasterData(raw) {
 app.post('/webhook/jotform', upload.any(), async (req, res) => {
     res.status(200).send({ status: "ok" });
     try {
-        console.log('--- 📬 NEW SUBMISSION ---');
-        const prettyData = extractMasterData({ ...req.body, ...req.query });
-        console.log('✨ SENDING TO GHL:', JSON.stringify(prettyData, null, 2));
+        const cleaned = extractMasterData({ ...req.body, ...req.query });
+        console.log('✨ CLEANED DATA:', JSON.stringify(cleaned, null, 2));
 
-        if (GHL_ROUTER_URL && prettyData.email) {
-            await axios.post(GHL_ROUTER_URL, prettyData);
-            console.log('✅ SUCCESS');
+        if (GHL_ROUTER_URL && cleaned.email) {
+            await axios.post(GHL_ROUTER_URL, cleaned);
+            console.log('✅ FORWARDED TO GHL');
         }
-    } catch (e) { console.error('❌ ERROR:', e.message); }
+    } catch (e) {
+        console.error('❌ ERROR:', e.message);
+    }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Bridge V3 Live`); });
+app.listen(PORT, () => { console.log(`🚀 Bridge V4 Live`); });
