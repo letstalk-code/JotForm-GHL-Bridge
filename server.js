@@ -14,36 +14,26 @@ const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
 const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
 
 /**
- * MASTER EXTRACTOR V4
- * This version specifically handles JotForm's 'rawRequest' field.
+ * MASTER EXTRACTOR V5 - "The S-Fixer"
  */
 function extractMasterData(incoming) {
     let data = incoming || {};
-
-    // 1. CRITICAL: Unpack JotForm's nested rawRequest if it exists
     if (data.rawRequest) {
-        try {
-            data = JSON.parse(data.rawRequest);
-            console.log('📦 Unpacked real JotForm data.');
-        } catch (e) {
-            console.log('⚠️ Could not parse rawRequest, using body as-is.');
-        }
+        try { data = JSON.parse(data.rawRequest); } catch (e) { }
     }
 
     const getVal = (search, sub) => {
-        // Search inside the unpacked data
         const keys = Object.keys(data);
-
-        // Match bracket notation or nested object
+        // Search for keys that contains the string (e.g. 'bride')
         const foundKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()));
         if (!foundKey) return "";
 
         if (sub) {
-            // Check for [first] in the key name
+            // Check bracket notation: q15_bride[first]
             const bracketKey = keys.find(k => k.toLowerCase().includes(search.toLowerCase()) && k.toLowerCase().includes(`[${sub.toLowerCase()}]`));
             if (bracketKey) return data[bracketKey];
 
-            // Check for nested object { name: { first: "" } }
+            // Check object notation
             if (typeof data[foundKey] === 'object' && data[foundKey] !== null) {
                 return data[foundKey][sub] || "";
             }
@@ -51,10 +41,10 @@ function extractMasterData(incoming) {
         return data[foundKey];
     };
 
-    const b_first = getVal('bridesName', 'first') || getVal('name', 'first') || "";
-    const b_last = getVal('bridesName', 'last') || getVal('name', 'last') || "";
-    const g_first = getVal('groomsName', 'first') || "";
-    const g_last = getVal('groomsName', 'last') || "";
+    const b_first = getVal('bride', 'first') || getVal('name', 'first') || "";
+    const b_last = getVal('bride', 'last') || getVal('name', 'last') || "";
+    const g_first = getVal('groom', 'first') || "";
+    const g_last = getVal('groom', 'last') || "";
 
     const m = getVal('weddingDate', 'month') || getVal('eventDate', 'month') || "";
     const d = getVal('weddingDate', 'day') || getVal('eventDate', 'day') || "";
@@ -63,18 +53,21 @@ function extractMasterData(incoming) {
 
     return {
         form_title: data.formTitle || data.form_title || "Wedding Contract",
-        first_name: b_first || "New",
-        last_name: b_last || "Bride",
         email: getVal('email') || "",
-        phone: getVal('phoneNumber') || getVal('phone') || "",
+        phone: getVal('phone') || "",
+        // We send BOTH plural and singular so GHL never misses
+        bride_first_name: b_first,
         brides_first_name: b_first,
+        bride_last_name: b_last,
         brides_last_name: b_last,
+        groom_first_name: g_first,
         grooms_first_name: g_first,
+        groom_last_name: g_last,
         grooms_last_name: g_last,
         wedding_date: weddingDate,
         event_date: weddingDate,
-        venue_location: getVal('weddingCeremony') || getVal('venue') || "",
-        reception_location: getVal('weddingReception') || getVal('reception') || ""
+        venue_location: getVal('ceremony') || getVal('venue') || "",
+        reception_location: getVal('reception') || ""
     };
 }
 
@@ -88,9 +81,7 @@ app.post('/webhook/jotform', upload.any(), async (req, res) => {
             await axios.post(GHL_ROUTER_URL, cleaned);
             console.log('✅ FORWARDED TO GHL');
         }
-    } catch (e) {
-        console.error('❌ ERROR:', e.message);
-    }
+    } catch (e) { console.error('❌ ERROR:', e.message); }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Bridge V4 Live`); });
+app.listen(PORT, () => { console.log(`🚀 Bridge V5 Live`); });
