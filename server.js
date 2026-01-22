@@ -31,41 +31,46 @@ async function syncAllForms() {
                 await axios.post(`https://api.jotform.com/form/${form.id}/webhooks`, `webhookURL=${encodeURIComponent(BRIDGE_URL)}`, {
                     headers: { 'APIKEY': JOTFORM_API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
-                console.log(`🚀 Bridged: ${form.title}`);
             }
         }
-    } catch (e) { console.error('Sync Error:', e.message); }
+    } catch (e) { /* silent sync */ }
 }
-setInterval(syncAllForms, 10 * 60 * 1000);
+setInterval(syncAllForms, 15 * 60 * 1000);
 syncAllForms();
 
 /**
  * BRIDGE WEBHOOK
  */
 app.post('/webhook/jotform', async (req, res) => {
+    // ALWAYS respond 200 to JotForm immediately to prevent retries
+    res.status(200).send({ status: "received" });
+
     try {
         console.log('--- 📬 NEW SUBMISSION RECEIVED ---');
-        console.log('RAW DATA:', JSON.stringify(req.body, null, 2));
 
-        const data = req.body;
+        // Handle BOTH raw and parsed data
+        const data = req.body || {};
 
-        // Use a more flexible name picker
+        // If data is empty, check if it was sent as a URL encoded string in a field
+        const submission = data.rawRequest ? JSON.parse(data.rawRequest) : data;
+
+        console.log('SUBMISSION DATA:', JSON.stringify(submission, null, 2));
+
         const getField = (keys) => {
             for (const key of keys) {
-                if (data[key]) return data[key];
+                if (submission[key]) return submission[key];
             }
-            // Smart search: find any key that contains the string
-            const foundKey = Object.keys(data).find(k => keys.some(search => k.toLowerCase().includes(search.toLowerCase())));
-            return foundKey ? data[foundKey] : "";
+            const foundKey = Object.keys(submission).find(k => keys.some(search => k.toLowerCase().includes(search.toLowerCase())));
+            return foundKey ? submission[foundKey] : "";
         };
 
-        const brideName = getField(['q15_bridesName', 'bridesName', 'name']);
-        const groomName = getField(['q85_groomsName', 'groomsName']);
-        const weddingDate = getField(['q117_weddingDate', 'weddingDate', 'eventDate']);
+        const brideName = getField(['q15_bridesName', 'bridesName', 'name']) || {};
+        const groomName = getField(['q85_groomsName', 'groomsName']) || {};
+        const weddingDate = getField(['q117_weddingDate', 'weddingDate', 'eventDate']) || {};
 
         const prettyData = {
-            form_id: data.formID || "",
-            form_title: data.formTitle || "",
+            form_id: submission.formID || "",
+            form_title: submission.formTitle || "",
             first_name: brideName.first || (typeof brideName === 'string' ? brideName.split(' ')[0] : ""),
             last_name: brideName.last || (typeof brideName === 'string' ? brideName.split(' ').slice(1).join(' ') : ""),
             email: getField(['q113_email', 'email', 'email114']),
@@ -81,12 +86,12 @@ app.post('/webhook/jotform', async (req, res) => {
 
         console.log('✨ CLEANED DATA:', JSON.stringify(prettyData, null, 2));
 
-        await axios.post(GHL_ROUTER_URL, prettyData);
-        console.log('✅ FORWARDED TO GHL');
-        res.status(200).send({ status: "success" });
+        if (GHL_ROUTER_URL) {
+            await axios.post(GHL_ROUTER_URL, prettyData);
+            console.log('✅ FORWARDED TO GHL');
+        }
     } catch (error) {
-        console.error('❌ ERROR:', error.message);
-        res.status(500).send({ error: error.message });
+        console.error('❌ BRIDGE PROCESSING ERROR:', error.message);
     }
 });
 
