@@ -2,8 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const multer = require('multer'); // Added to handle Multipart Form Data
 
 const app = express();
+const upload = multer(); // For handling multipart/form-data
 const PORT = process.env.PORT || 3001;
 
 app.use(bodyParser.json());
@@ -36,23 +38,27 @@ async function syncAllForms() {
     } catch (e) { /* silent sync */ }
 }
 setInterval(syncAllForms, 15 * 60 * 1000);
-syncAllForms();
 
 /**
- * BRIDGE WEBHOOK
+ * BRIDGE WEBHOOK - Updated to handle all formats
  */
-app.post('/webhook/jotform', async (req, res) => {
-    // ALWAYS respond 200 to JotForm immediately to prevent retries
+app.post('/webhook/jotform', upload.any(), async (req, res) => {
+    // Respond to JotForm immediately
     res.status(200).send({ status: "received" });
 
     try {
         console.log('--- 📬 NEW SUBMISSION RECEIVED ---');
+        console.log('Content-Type:', req.headers['content-type']);
 
-        // Handle BOTH raw and parsed data
-        const data = req.body || {};
+        // Check body and files (multipart)
+        let submission = req.body || {};
 
-        // If data is empty, check if it was sent as a URL encoded string in a field
-        const submission = data.rawRequest ? JSON.parse(data.rawRequest) : data;
+        // If JotForm sends a JSON string inside a field
+        if (submission.rawRequest) {
+            try {
+                submission = JSON.parse(submission.rawRequest);
+            } catch (e) { }
+        }
 
         console.log('SUBMISSION DATA:', JSON.stringify(submission, null, 2));
 
@@ -69,8 +75,8 @@ app.post('/webhook/jotform', async (req, res) => {
         const weddingDate = getField(['q117_weddingDate', 'weddingDate', 'eventDate']) || {};
 
         const prettyData = {
-            form_id: submission.formID || "",
-            form_title: submission.formTitle || "",
+            form_id: submission.formID || submission.form_id || "",
+            form_title: submission.formTitle || submission.form_title || "",
             first_name: brideName.first || (typeof brideName === 'string' ? brideName.split(' ')[0] : ""),
             last_name: brideName.last || (typeof brideName === 'string' ? brideName.split(' ').slice(1).join(' ') : ""),
             email: getField(['q113_email', 'email', 'email114']),
@@ -86,13 +92,15 @@ app.post('/webhook/jotform', async (req, res) => {
 
         console.log('✨ CLEANED DATA:', JSON.stringify(prettyData, null, 2));
 
-        if (GHL_ROUTER_URL) {
+        if (GHL_ROUTER_URL && prettyData.email) {
             await axios.post(GHL_ROUTER_URL, prettyData);
             console.log('✅ FORWARDED TO GHL');
+        } else if (!prettyData.email) {
+            console.log('⚠️ SKIPPED: No email found in submission.');
         }
     } catch (error) {
-        console.error('❌ BRIDGE PROCESSING ERROR:', error.message);
+        console.error('❌ BRIDGE ERROR:', error.message);
     }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Bridge live on port ${PORT}`); });
+app.listen(PORT, () => { console.log(`🚀 Resilient Bridge live on port ${PORT}`); });
