@@ -14,8 +14,8 @@ const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
 const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
 
 /**
- * MASTER EXTRACTOR V7 - "The Cleaned Version"
- * Sends only the exact fields requested.
+ * MASTER EXTRACTOR V8 - "The Final Polish"
+ * No underscores for standard name fields.
  */
 function extractMasterData(incoming) {
     let data = incoming || {};
@@ -48,11 +48,10 @@ function extractMasterData(incoming) {
     const y = getVal('weddingDate', 'year') || getVal('eventDate', 'year') || "";
     const weddingDate = (m && d && y) ? `${m}/${d}/${y}` : "";
 
-    // Exact Cleaned List requested by USER
     return {
         form_title: data.formTitle || data.form_title || "Wedding Contract",
-        first_name: b_first,
-        last_name: b_last,
+        firstname: b_first,
+        lastname: b_last,
         email: getVal('email') || "",
         phone: getVal('phone') || "",
         brides_first_name: b_first,
@@ -73,9 +72,9 @@ app.post('/webhook/jotform', upload.any(), async (req, res) => {
 
         if (GHL_ROUTER_URL && cleaned.email) {
             await axios.post(GHL_ROUTER_URL, cleaned);
-            console.log('✅ FORWARDED CLEAN DATA');
+            console.log('✅ FORWARDED');
         }
     } catch (e) { console.error('❌ ERROR:', e.message); }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Clean Bridge V7 Live`); });
+app.listen(PORT, () => { console.log(`🚀 Bridge V8 Live`); });
