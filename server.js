@@ -14,10 +14,9 @@ const JOTFORM_API_KEY = process.env.JOTFORM_API_KEY;
 const GHL_ROUTER_URL = process.env.GHL_ROUTER_URL;
 
 /**
- * MASTER EXTRACTOR V8 - "The Final Polish"
- * No underscores for standard name fields.
+ * MASTER EXTRACTOR V9 - "The Smart-Lookup Version"
  */
-function extractMasterData(incoming) {
+async function extractMasterData(incoming) {
     let data = incoming || {};
     if (data.rawRequest) {
         try { data = JSON.parse(data.rawRequest); } catch (e) { }
@@ -48,8 +47,20 @@ function extractMasterData(incoming) {
     const y = getVal('weddingDate', 'year') || getVal('eventDate', 'year') || "";
     const weddingDate = (m && d && y) ? `${m}/${d}/${y}` : "";
 
+    // FETCH REAL FORM TITLE USING JOTFORM API
+    let realTitle = data.formTitle || data.form_title || "Wedding Contract";
+    const formId = data.formID || data.form_id;
+    if (formId && JOTFORM_API_KEY) {
+        try {
+            const res = await axios.get(`https://api.jotform.com/form/${formId}`, { headers: { 'APIKEY': JOTFORM_API_KEY } });
+            if (res.data.content && res.data.content.title) {
+                realTitle = res.data.content.title;
+            }
+        } catch (e) { console.log('⚠️ Could not fetch real title, using fallback.'); }
+    }
+
     return {
-        form_title: data.formTitle || data.form_title || "Wedding Contract",
+        form_title: realTitle,
         firstname: b_first,
         lastname: b_last,
         email: getVal('email') || "",
@@ -67,14 +78,15 @@ function extractMasterData(incoming) {
 app.post('/webhook/jotform', upload.any(), async (req, res) => {
     res.status(200).send({ status: "ok" });
     try {
-        const cleaned = extractMasterData({ ...req.body, ...req.query });
+        console.log('--- 📬 NEW SUBMISSION ---');
+        const cleaned = await extractMasterData({ ...req.body, ...req.query });
         console.log('✨ CLEANED DATA:', JSON.stringify(cleaned, null, 2));
 
         if (GHL_ROUTER_URL && cleaned.email) {
             await axios.post(GHL_ROUTER_URL, cleaned);
-            console.log('✅ FORWARDED');
+            console.log(`✅ FORWARDED: [${cleaned.form_title}]`);
         }
     } catch (e) { console.error('❌ ERROR:', e.message); }
 });
 
-app.listen(PORT, () => { console.log(`🚀 Bridge V8 Live`); });
+app.listen(PORT, () => { console.log(`🚀 Smart Bridge V9 Live`); });
